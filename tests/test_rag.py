@@ -99,6 +99,19 @@ class RAGServiceTest(unittest.TestCase):
         self.assertEqual(result["sources"][0]["title"], "会议室预约制度")
         self.assertNotIn("Qdrant 向量召回", result["sources"][0]["evidence"])
 
+    def test_knowledge_route_filters_sources_by_user_roles(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            storage = Storage(Path(temp_dir) / "app.db")
+            storage.add_document("公开制度", "会议室预约需要提前 1 个工作日。")
+            storage.add_document("财务制度", "财务奖金名单只允许财务角色查看。", ["finance"])
+            service = RAGService(storage)
+
+            public_result = service.answer("财务制度里的奖金名单", user_roles=["employee"])
+            finance_result = service.answer("财务制度里的奖金名单", user_roles=["finance"])
+
+        self.assertNotIn("财务制度", [source["title"] for source in public_result["sources"]])
+        self.assertEqual(finance_result["sources"][0]["title"], "财务制度")
+
 
 if __name__ == "__main__":
     unittest.main()

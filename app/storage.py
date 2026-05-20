@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import sqlite3
 from pathlib import Path
 from typing import Any
@@ -27,6 +28,7 @@ class Storage:
                     id integer primary key autoincrement,
                     title text not null,
                     content text not null,
+                    visibility_roles text not null default '["public"]',
                     created_at text not null default current_timestamp
                 );
 
@@ -53,7 +55,16 @@ class Storage:
                 );
                 """
             )
+            self._ensure_document_visibility_column(db)
             self._rebuild_fts_if_empty(db)
+
+    def _ensure_document_visibility_column(self, db: sqlite3.Connection) -> None:
+        columns = {row["name"] for row in db.execute("pragma table_info(documents)").fetchall()}
+        if "visibility_roles" not in columns:
+            db.execute(
+                "alter table documents add column visibility_roles text not null "
+                "default '[\"public\"]'"
+            )
 
     def _rebuild_fts_if_empty(self, db: sqlite3.Connection) -> None:
         count = db.execute("select count(*) as total from chunks_fts").fetchone()["total"]
@@ -97,17 +108,23 @@ class Storage:
                 tokens.append(token)
         return " OR ".join(f'"{token}"' for token in tokens)
 
-    def add_document(self, title: str, content: str) -> dict[str, Any]:
+    def add_document(
+        self,
+        title: str,
+        content: str,
+        visibility_roles: list[str] | None = None,
+    ) -> dict[str, Any]:
         chunks = chunk_text(content)
         if not title.strip():
             raise ValueError("title is required")
         if not chunks:
             raise ValueError("content is required")
+        roles = self._normalize_roles(visibility_roles)
 
         with self.connect() as db:
             cursor = db.execute(
-                "insert into documents (title, content) values (?, ?)",
-                (title.strip(), content.strip()),
+                "insert into documents (title, content, visibility_roles) values (?, ?, ?)",
+                (title.strip(), content.strip(), json.dumps(roles, ensure_ascii=False)),
             )
             document_id = int(cursor.lastrowid)
             db.executemany(
@@ -138,22 +155,37 @@ class Storage:
                     for row in rows
                 ],
             )
-        return {"id": document_id, "title": title.strip(), "chunk_count": len(chunks)}
+        return {
+            "id": document_id,
+            "title": title.strip(),
+            "chunk_count": len(chunks),
+            "visibility_roles": roles,
+        }
 
     def list_documents(self) -> list[dict[str, Any]]:
         with self.connect() as db:
             rows = db.execute(
                 """
-                select d.id, d.title, d.created_at, count(c.id) as chunk_count
+                select d.id, d.title, d.visibility_roles, d.created_at, count(c.id) as chunk_count
                 from documents d
                 left join chunks c on c.document_id = d.id
                 group by d.id
                 order by d.id desc
                 """
             ).fetchall()
-        return [dict(row) for row in rows]
+        return [
+            {
+                **dict(row),
+                "visibility_roles": self._decode_roles(row["visibility_roles"]),
+            }
+            for row in rows
+        ]
 
-    def list_chunks(self, document_id: int | None = None) -> list[Chunk]:
+    def list_chunks(
+        self,
+        document_id: int | None = None,
+        user_roles: list[str] | None = None,
+    ) -> list[Chunk]:
         with self.connect() as db:
             params: tuple[Any, ...] = ()
             where_clause = ""
@@ -162,7 +194,7 @@ class Storage:
                 params = (document_id,)
             rows = db.execute(
                 f"""
-                select c.id, c.document_id, d.title, c.content, c.position
+                select c.id, c.document_id, d.title, d.visibility_roles, c.content, c.position
                 from chunks c
                 join documents d on d.id = c.document_id
                 {where_clause}
@@ -170,6 +202,9 @@ class Storage:
                 """,
                 params,
             ).fetchall()
+        visible_rows = [
+            row for row in rows if self._roles_visible(row["visibility_roles"], user_roles)
+        ]
         return [
             Chunk(
                 id=row["id"],
@@ -178,7 +213,7 @@ class Storage:
                 content=row["content"],
                 position=row["position"],
             )
-                for row in rows
+                for row in visible_rows
         ]
 
     def delete_document(self, document_id: int) -> None:
@@ -191,6 +226,7 @@ class Storage:
         self,
         query: str,
         limit: int = 8,
+        user_roles: list[str] | None = None,
     ) -> dict[int, ExternalRetrievalScore]:
         fts_query = self._fts_query(query)
         if not fts_query:
@@ -199,8 +235,13 @@ class Storage:
         with self.connect() as db:
             rows = db.execute(
                 """
-                select chunk_id, bm25(chunks_fts, 1.4, 1.0) as rank
+                select
+                    chunk_id,
+                    chunks_fts.document_id,
+                    d.visibility_roles,
+                    bm25(chunks_fts, 1.4, 1.0) as rank
                 from chunks_fts
+                join documents d on d.id = chunks_fts.document_id
                 where chunks_fts match ?
                 order by rank
                 limit ?
@@ -210,6 +251,8 @@ class Storage:
 
         scores: dict[int, ExternalRetrievalScore] = {}
         for row in rows:
+            if not self._roles_visible(row["visibility_roles"], user_roles):
+                continue
             rank = abs(float(row["rank"]))
             score = min(3.0, rank * 8.0 + 0.7)
             scores[int(row["chunk_id"])] = ExternalRetrievalScore(
@@ -243,3 +286,27 @@ class Storage:
         with self.connect() as db:
             count = db.execute("select count(*) as total from documents").fetchone()["total"]
         return count == 0
+
+    def _normalize_roles(self, roles: list[str] | None) -> list[str]:
+        normalized: list[str] = []
+        for role in roles or ["public"]:
+            cleaned = role.strip().lower()
+            if cleaned and cleaned not in normalized:
+                normalized.append(cleaned)
+        return normalized or ["public"]
+
+    def _decode_roles(self, raw_roles: str) -> list[str]:
+        try:
+            roles = json.loads(raw_roles)
+        except json.JSONDecodeError:
+            roles = ["public"]
+        if not isinstance(roles, list):
+            return ["public"]
+        return self._normalize_roles([str(role) for role in roles])
+
+    def _roles_visible(self, raw_roles: str, user_roles: list[str] | None) -> bool:
+        document_roles = set(self._decode_roles(raw_roles))
+        if "public" in document_roles:
+            return True
+        actor_roles = set(self._normalize_roles(user_roles))
+        return bool(document_roles & actor_roles)

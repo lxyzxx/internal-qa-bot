@@ -41,6 +41,27 @@ class StorageTest(unittest.TestCase):
         self.assertEqual(len(chunks), 1)
         self.assertEqual(chunks[0].title, "会议室预约制度")
 
+    def test_role_filter_hides_private_chunks_and_fts_scores(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            storage = Storage(Path(temp_dir) / "app.db")
+            storage.add_document("公开制度", "会议室预约需要提前 1 个工作日。")
+            private = storage.add_document(
+                "财务制度",
+                "财务奖金名单只允许财务角色查看。",
+                ["finance"],
+            )
+
+            public_chunks = storage.list_chunks(user_roles=["employee"])
+            finance_chunks = storage.list_chunks(user_roles=["finance"])
+            public_scores = storage.search_chunks_fts("财务奖金", user_roles=["employee"])
+            finance_scores = storage.search_chunks_fts("财务奖金", user_roles=["finance"])
+
+        self.assertEqual([chunk.title for chunk in public_chunks], ["公开制度"])
+        self.assertIn("财务制度", [chunk.title for chunk in finance_chunks])
+        self.assertEqual(public_scores, {})
+        self.assertTrue(finance_scores)
+        self.assertEqual(private["visibility_roles"], ["finance"])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -8,7 +8,7 @@ from typing import Any
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.config import STATIC_DIR, settings
 from app.embedding import EmbeddingConfig
@@ -39,6 +39,7 @@ rag_service = RAGService(storage, vector_index)
 class DocumentRequest(BaseModel):
     title: str
     content: str
+    visibility_roles: list[str] = Field(default_factory=lambda: ["public"])
 
 
 class BatchDocumentsRequest(BaseModel):
@@ -48,6 +49,7 @@ class BatchDocumentsRequest(BaseModel):
 class ChatRequest(BaseModel):
     question: str
     session_id: str | None = None
+    user_roles: list[str] = Field(default_factory=lambda: ["public"])
 
 
 def seed_sample_data(
@@ -148,7 +150,11 @@ def add_document_with_vector_sync(
     vector_index_instance: NullVectorIndex | QdrantVectorIndex,
     document: DocumentRequest,
 ) -> dict[str, Any]:
-    result = storage_instance.add_document(document.title, document.content)
+    result = storage_instance.add_document(
+        document.title,
+        document.content,
+        document.visibility_roles,
+    )
     return {
         **result,
         **sync_vector_index(vector_index_instance, storage_instance, int(result["id"])),
@@ -279,7 +285,11 @@ def create_app(
     @api.post("/api/chat")
     async def chat(payload: ChatRequest) -> dict[str, Any]:
         try:
-            return rag_service_instance.answer(payload.question, payload.session_id)
+            return rag_service_instance.answer(
+                payload.question,
+                payload.session_id,
+                payload.user_roles,
+            )
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         except Exception as exc:  # pragma: no cover - last-resort API guard

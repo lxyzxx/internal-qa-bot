@@ -22,7 +22,12 @@ class RAGService:
         self.storage = storage
         self.vector_index = vector_index or NullVectorIndex()
 
-    def answer(self, question: str, session_id: str | None = None) -> dict:
+    def answer(
+        self,
+        question: str,
+        session_id: str | None = None,
+        user_roles: list[str] | None = None,
+    ) -> dict:
         cleaned_question = question.strip()
         if not cleaned_question:
             raise ValueError("question is required")
@@ -55,8 +60,12 @@ class RAGService:
             )
             hits = []
         else:
-            chunks = self.storage.list_chunks()
-            fts_scores = self.storage.search_chunks_fts(cleaned_question, limit=settings.top_k * 3)
+            chunks = self.storage.list_chunks(user_roles=user_roles)
+            fts_scores = self.storage.search_chunks_fts(
+                cleaned_question,
+                limit=settings.top_k * 3,
+                user_roles=user_roles,
+            )
             try:
                 qdrant_scores = self.vector_index.search(
                     cleaned_question,
