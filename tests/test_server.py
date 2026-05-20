@@ -460,6 +460,39 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(ok_status, 200)
         self.assertEqual(json.loads(ok_body)["feedback"], [])
 
+    def test_metrics_endpoint_returns_runtime_summary(self) -> None:
+        with patch("app.rag.generate_chat_answer", return_value="你好"):
+            app = self.make_app()
+            asyncio.run(request(app, "POST", "/api/chat", {"question": "你好"}))
+            status, _, body = asyncio.run(request(app, "GET", "/api/metrics"))
+
+        data = json.loads(body)
+        self.assertEqual(status, 200)
+        self.assertEqual(data["queries"], 1)
+        self.assertEqual(data["routes"][0]["route_layer"], "general_chat")
+
+    def test_admin_token_protects_metrics_when_configured(self) -> None:
+        temp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(temp_dir.cleanup)
+        storage = Storage(Path(temp_dir.name) / "app.db")
+        vector_index = NullVectorIndex()
+        app = create_app(storage, RAGService(storage, vector_index), vector_index, "secret-token")
+
+        missing_status, _, missing_body = asyncio.run(request(app, "GET", "/api/metrics"))
+        ok_status, _, ok_body = asyncio.run(
+            request(
+                app,
+                "GET",
+                "/api/metrics",
+                extra_headers={"x-admin-token": "secret-token"},
+            )
+        )
+
+        self.assertEqual(missing_status, 401)
+        self.assertEqual(json.loads(missing_body)["detail"], "invalid admin token")
+        self.assertEqual(ok_status, 200)
+        self.assertEqual(json.loads(ok_body)["queries"], 0)
+
     def test_chat_endpoint(self) -> None:
         with patch("app.rag.generate_chat_answer", return_value="你好"):
             status, _, body = asyncio.run(

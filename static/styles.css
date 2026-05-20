@@ -245,6 +245,35 @@ textarea:focus {
   gap: 10px;
 }
 
+.metrics {
+  display: grid;
+  gap: 8px;
+}
+
+.metric-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border-bottom: 1px solid var(--line);
+  padding: 7px 0;
+  font-size: 13px;
+}
+
+.metric-item span {
+  color: var(--muted);
+}
+
+.metric-item strong {
+  color: var(--text);
+}
+
+.wide-button {
+  width: 100%;
+  margin-top: 12px;
+  padding: 10px 12px;
+}
+
 .doc-item {
   border: 1px solid var(--line);
   border-radius: 8px;

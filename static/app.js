@@ -10,6 +10,8 @@ const docContent = document.querySelector("#doc-content");
 const batchForm = document.querySelector("#batch-form");
 const batchFiles = document.querySelector("#batch-files");
 const batchStatus = document.querySelector("#batch-status");
+const metricsEl = document.querySelector("#metrics");
+const metricsRefresh = document.querySelector("#metrics-refresh");
 
 let sessionId = localStorage.getItem("internal-qa-bot-session-id") || "";
 adminToken.value = localStorage.getItem("internal-qa-bot-admin-token") || "";
@@ -160,6 +162,26 @@ async function checkHealth() {
   statusEl.textContent = "已连接";
 }
 
+async function loadMetrics() {
+  const data = await requestJson("/api/metrics", { admin: true });
+  metricsEl.innerHTML = "";
+  [
+    ["文档", data.documents],
+    ["片段", data.chunks],
+    ["问答", data.queries],
+    ["平均耗时", `${data.avg_latency_ms} ms`],
+    ["无答案", data.unanswered_queries],
+    ["好评/差评", `${data.feedback.up}/${data.feedback.down}`],
+  ].forEach(([label, value]) => {
+    const item = document.createElement("div");
+    item.className = "metric-item";
+    item.innerHTML = `<span></span><strong></strong>`;
+    item.querySelector("span").textContent = label;
+    item.querySelector("strong").textContent = value;
+    metricsEl.appendChild(item);
+  });
+}
+
 chatForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   const question = questionInput.value.trim();
@@ -191,9 +213,18 @@ chatForm.addEventListener("submit", async (event) => {
         answer: data.answer,
       },
     );
+    loadMetrics().catch(() => {});
   } catch (error) {
     chat.lastElementChild.remove();
     addMessage("assistant", `请求失败：${error.message}`);
+  }
+});
+
+metricsRefresh.addEventListener("click", async () => {
+  try {
+    await loadMetrics();
+  } catch (error) {
+    metricsEl.innerHTML = `<div class="empty">指标加载失败：${error.message}</div>`;
   }
 });
 
@@ -256,4 +287,5 @@ checkHealth().catch(() => {
 loadDocuments().catch(() => {
   documentsEl.innerHTML = '<div class="empty">加载失败</div>';
 });
+loadMetrics().catch(() => {});
 addMessage("assistant", "你好，我会先检索知识库原文并核验上下文，再回答内部问题。");

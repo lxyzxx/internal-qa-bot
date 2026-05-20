@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from time import perf_counter
 from uuid import uuid4
 
 from app.chatbot import answer_general_chat
@@ -9,6 +10,7 @@ from app.problem_layers import (
     BUSINESS_TOOL,
     DETERMINISTIC_RULE,
     GENERAL_CHAT,
+    KNOWLEDGE_EVIDENCE,
     classify_problem,
     route_to_dict,
 )
@@ -32,6 +34,7 @@ class RAGService:
         if not cleaned_question:
             raise ValueError("question is required")
 
+        started = perf_counter()
         active_session_id = session_id or str(uuid4())
         history = self.storage.get_recent_messages(active_session_id)
         route = classify_problem(cleaned_question)
@@ -89,6 +92,15 @@ class RAGService:
 
         self.storage.add_message(active_session_id, "user", cleaned_question)
         self.storage.add_message(active_session_id, "assistant", answer)
+        self.storage.add_query_event(
+            active_session_id,
+            cleaned_question,
+            route.layer,
+            route.handler,
+            int((perf_counter() - started) * 1000),
+            len(hits),
+            route.layer != KNOWLEDGE_EVIDENCE or bool(hits),
+        )
 
         return {
             "session_id": active_session_id,

@@ -112,6 +112,19 @@ class RAGServiceTest(unittest.TestCase):
         self.assertNotIn("财务制度", [source["title"] for source in public_result["sources"]])
         self.assertEqual(finance_result["sources"][0]["title"], "财务制度")
 
+    def test_answer_records_query_event_for_monitoring(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            storage = Storage(Path(temp_dir) / "app.db")
+            storage.add_document("会议室预约制度", "会议室预约需要提前 1 个工作日。")
+            service = RAGService(storage)
+
+            service.answer("会议室预约制度要求提前多久？")
+            metrics = storage.metrics_summary()
+
+        self.assertEqual(metrics["queries"], 1)
+        self.assertEqual(metrics["routes"][0]["route_layer"], "knowledge_evidence")
+        self.assertEqual(metrics["unanswered_queries"], 0)
+
 
 if __name__ == "__main__":
     unittest.main()

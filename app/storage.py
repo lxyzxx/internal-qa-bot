@@ -57,6 +57,18 @@ class Storage:
                     created_at text not null default current_timestamp
                 );
 
+                create table if not exists query_events (
+                    id integer primary key autoincrement,
+                    session_id text not null,
+                    question text not null,
+                    route_layer text not null,
+                    route_handler text not null,
+                    latency_ms integer not null,
+                    source_count integer not null,
+                    answer_found integer not null,
+                    created_at text not null default current_timestamp
+                );
+
                 create virtual table if not exists chunks_fts using fts5(
                     chunk_id unindexed,
                     document_id unindexed,
@@ -337,6 +349,77 @@ class Storage:
                 (limit,),
             ).fetchall()
         return [dict(row) for row in rows]
+
+    def add_query_event(
+        self,
+        session_id: str,
+        question: str,
+        route_layer: str,
+        route_handler: str,
+        latency_ms: int,
+        source_count: int,
+        answer_found: bool,
+    ) -> None:
+        with self.connect() as db:
+            db.execute(
+                """
+                insert into query_events (
+                    session_id, question, route_layer, route_handler,
+                    latency_ms, source_count, answer_found
+                )
+                values (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    session_id,
+                    question,
+                    route_layer,
+                    route_handler,
+                    latency_ms,
+                    source_count,
+                    1 if answer_found else 0,
+                ),
+            )
+
+    def metrics_summary(self) -> dict[str, Any]:
+        with self.connect() as db:
+            documents = db.execute("select count(*) as total from documents").fetchone()["total"]
+            chunks = db.execute("select count(*) as total from chunks").fetchone()["total"]
+            queries = db.execute("select count(*) as total from query_events").fetchone()["total"]
+            avg_latency = db.execute(
+                "select coalesce(avg(latency_ms), 0) as value from query_events"
+            ).fetchone()["value"]
+            unanswered = db.execute(
+                "select count(*) as total from query_events where answer_found = 0"
+            ).fetchone()["total"]
+            route_rows = db.execute(
+                """
+                select route_layer, route_handler, count(*) as total
+                from query_events
+                group by route_layer, route_handler
+                order by total desc
+                """
+            ).fetchall()
+            feedback_rows = db.execute(
+                """
+                select rating, count(*) as total
+                from feedback
+                group by rating
+                """
+            ).fetchall()
+
+        feedback = {"up": 0, "down": 0}
+        for row in feedback_rows:
+            feedback[row["rating"]] = row["total"]
+
+        return {
+            "documents": documents,
+            "chunks": chunks,
+            "queries": queries,
+            "avg_latency_ms": round(float(avg_latency), 2),
+            "unanswered_queries": unanswered,
+            "routes": [dict(row) for row in route_rows],
+            "feedback": feedback,
+        }
 
     def is_empty(self) -> bool:
         with self.connect() as db:

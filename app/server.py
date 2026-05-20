@@ -263,6 +263,11 @@ def create_app(
     async def health() -> dict[str, str]:
         return {"status": "ok"}
 
+    @api.get("/api/metrics")
+    async def metrics(request: Request) -> dict[str, Any]:
+        require_admin(request)
+        return storage_instance.metrics_summary()
+
     @api.get("/api/documents")
     async def list_documents() -> dict[str, list[dict[str, Any]]]:
         return {"documents": storage_instance.list_documents()}

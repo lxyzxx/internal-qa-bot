@@ -79,6 +79,38 @@ class StorageTest(unittest.TestCase):
         self.assertEqual(feedback[0]["question"], "会议室预约制度要求提前多久？")
         self.assertEqual(feedback[0]["comment"], "没有给出处")
 
+    def test_metrics_summary_counts_queries_and_feedback(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            storage = Storage(Path(temp_dir) / "app.db")
+            storage.add_document("会议室预约制度", "会议室预约需要提前 1 个工作日。")
+            storage.add_feedback("session-1", "问题", "答案", "up")
+            storage.add_query_event(
+                "session-1",
+                "会议室预约制度要求提前多久？",
+                "knowledge_evidence",
+                "dci_retrieval",
+                42,
+                1,
+                True,
+            )
+            storage.add_query_event(
+                "session-2",
+                "未知政策是什么？",
+                "knowledge_evidence",
+                "dci_retrieval",
+                20,
+                0,
+                False,
+            )
+
+            metrics = storage.metrics_summary()
+
+        self.assertEqual(metrics["documents"], 1)
+        self.assertEqual(metrics["queries"], 2)
+        self.assertEqual(metrics["avg_latency_ms"], 31.0)
+        self.assertEqual(metrics["unanswered_queries"], 1)
+        self.assertEqual(metrics["feedback"], {"up": 1, "down": 0})
+
 
 if __name__ == "__main__":
     unittest.main()
