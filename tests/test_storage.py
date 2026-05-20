@@ -62,6 +62,23 @@ class StorageTest(unittest.TestCase):
         self.assertTrue(finance_scores)
         self.assertEqual(private["visibility_roles"], ["finance"])
 
+    def test_feedback_can_be_recorded_and_listed(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            storage = Storage(Path(temp_dir) / "app.db")
+
+            result = storage.add_feedback(
+                "session-1",
+                "会议室预约制度要求提前多久？",
+                "需要提前 1 个工作日。",
+                "down",
+                "没有给出处",
+            )
+            feedback = storage.list_feedback()
+
+        self.assertEqual(result["rating"], "down")
+        self.assertEqual(feedback[0]["question"], "会议室预约制度要求提前多久？")
+        self.assertEqual(feedback[0]["comment"], "没有给出处")
+
 
 if __name__ == "__main__":
     unittest.main()

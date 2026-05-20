@@ -47,6 +47,16 @@ class Storage:
                     created_at text not null default current_timestamp
                 );
 
+                create table if not exists feedback (
+                    id integer primary key autoincrement,
+                    session_id text not null,
+                    question text not null,
+                    answer text not null,
+                    rating text not null,
+                    comment text not null default '',
+                    created_at text not null default current_timestamp
+                );
+
                 create virtual table if not exists chunks_fts using fts5(
                     chunk_id unindexed,
                     document_id unindexed,
@@ -281,6 +291,52 @@ class Storage:
                 (session_id, limit),
             ).fetchall()
         return [dict(row) for row in reversed(rows)]
+
+    def add_feedback(
+        self,
+        session_id: str,
+        question: str,
+        answer: str,
+        rating: str,
+        comment: str = "",
+    ) -> dict[str, Any]:
+        cleaned_rating = rating.strip().lower()
+        if cleaned_rating not in {"up", "down"}:
+            raise ValueError("rating must be up or down")
+        if not question.strip():
+            raise ValueError("question is required")
+        if not answer.strip():
+            raise ValueError("answer is required")
+
+        with self.connect() as db:
+            cursor = db.execute(
+                """
+                insert into feedback (session_id, question, answer, rating, comment)
+                values (?, ?, ?, ?, ?)
+                """,
+                (
+                    session_id.strip(),
+                    question.strip(),
+                    answer.strip(),
+                    cleaned_rating,
+                    comment.strip(),
+                ),
+            )
+            feedback_id = int(cursor.lastrowid)
+        return {"id": feedback_id, "rating": cleaned_rating}
+
+    def list_feedback(self, limit: int = 50) -> list[dict[str, Any]]:
+        with self.connect() as db:
+            rows = db.execute(
+                """
+                select id, session_id, question, answer, rating, comment, created_at
+                from feedback
+                order by id desc
+                limit ?
+                """,
+                (limit,),
+            ).fetchall()
+        return [dict(row) for row in rows]
 
     def is_empty(self) -> bool:
         with self.connect() as db:

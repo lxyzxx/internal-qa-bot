@@ -411,6 +411,55 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(ok_status, 200)
         self.assertEqual(json.loads(ok_body)["total"], 0)
 
+    def test_feedback_endpoints_record_and_list_feedback(self) -> None:
+        app = self.make_app()
+
+        create_status, _, create_body = asyncio.run(
+            request(
+                app,
+                "POST",
+                "/api/feedback",
+                {
+                    "session_id": "session-1",
+                    "question": "会议室预约制度要求提前多久？",
+                    "answer": "需要提前 1 个工作日。",
+                    "rating": "up",
+                    "comment": "",
+                },
+            )
+        )
+        list_status, _, list_body = asyncio.run(request(app, "GET", "/api/feedback"))
+
+        self.assertEqual(create_status, 201)
+        self.assertEqual(json.loads(create_body)["rating"], "up")
+        self.assertEqual(list_status, 200)
+        self.assertEqual(
+            json.loads(list_body)["feedback"][0]["question"],
+            "会议室预约制度要求提前多久？",
+        )
+
+    def test_admin_token_protects_feedback_list_when_configured(self) -> None:
+        temp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(temp_dir.cleanup)
+        storage = Storage(Path(temp_dir.name) / "app.db")
+        vector_index = NullVectorIndex()
+        app = create_app(storage, RAGService(storage, vector_index), vector_index, "secret-token")
+
+        missing_status, _, missing_body = asyncio.run(request(app, "GET", "/api/feedback"))
+        ok_status, _, ok_body = asyncio.run(
+            request(
+                app,
+                "GET",
+                "/api/feedback",
+                extra_headers={"x-admin-token": "secret-token"},
+            )
+        )
+
+        self.assertEqual(missing_status, 401)
+        self.assertEqual(json.loads(missing_body)["detail"], "invalid admin token")
+        self.assertEqual(ok_status, 200)
+        self.assertEqual(json.loads(ok_body)["feedback"], [])
+
     def test_chat_endpoint(self) -> None:
         with patch("app.rag.generate_chat_answer", return_value="你好"):
             status, _, body = asyncio.run(

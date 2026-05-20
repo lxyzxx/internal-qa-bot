@@ -57,6 +57,14 @@ class EvaluationRequest(BaseModel):
     cases: list[dict[str, Any]] | None = None
 
 
+class FeedbackRequest(BaseModel):
+    session_id: str
+    question: str
+    answer: str
+    rating: str
+    comment: str = ""
+
+
 def seed_sample_data(
     storage_instance: Storage = storage,
     vector_index_instance: NullVectorIndex | QdrantVectorIndex = vector_index,
@@ -300,6 +308,24 @@ def create_app(
             except (KeyError, TypeError, ValueError) as exc:
                 raise HTTPException(status_code=400, detail=f"invalid evaluation case: {exc}") from exc
         return run_evaluation(rag_service_instance, cases)
+
+    @api.post("/api/feedback", status_code=201)
+    async def add_feedback(payload: FeedbackRequest) -> dict[str, Any]:
+        try:
+            return storage_instance.add_feedback(
+                payload.session_id,
+                payload.question,
+                payload.answer,
+                payload.rating,
+                payload.comment,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @api.get("/api/feedback")
+    async def list_feedback(request: Request) -> dict[str, Any]:
+        require_admin(request)
+        return {"feedback": storage_instance.list_feedback()}
 
     @api.post("/api/chat")
     async def chat(payload: ChatRequest) -> dict[str, Any]:

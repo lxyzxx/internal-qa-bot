@@ -143,6 +143,27 @@ h2 {
   gap: 8px;
 }
 
+.feedback-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.secondary-button {
+  border: 1px solid var(--line);
+  background: #ffffff;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 700;
+  padding: 7px 10px;
+}
+
+.secondary-button:hover {
+  border-color: var(--brand);
+  background: #f0fdfa;
+  color: var(--brand-dark);
+}
+
 .route {
   margin-top: 12px;
   border-left: 3px solid var(--brand);

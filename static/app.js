@@ -21,6 +21,7 @@ function addMessage(
   route = null,
   chatbotKnowledge = [],
   retrievalTrace = [],
+  feedbackPayload = null,
 ) {
   const item = document.createElement("article");
   item.className = `message ${role}`;
@@ -74,6 +75,35 @@ function addMessage(
       knowledgeList.appendChild(knowledgeItem);
     });
     item.appendChild(knowledgeList);
+  }
+
+  if (feedbackPayload) {
+    const actions = document.createElement("div");
+    actions.className = "feedback-actions";
+    [
+      ["up", "有用"],
+      ["down", "有问题"],
+    ].forEach(([rating, label]) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "secondary-button";
+      button.textContent = label;
+      button.addEventListener("click", async () => {
+        button.disabled = true;
+        try {
+          await requestJson("/api/feedback", {
+            method: "POST",
+            body: JSON.stringify({ ...feedbackPayload, rating }),
+          });
+          actions.textContent = "反馈已记录";
+        } catch (error) {
+          button.disabled = false;
+          alert(`反馈失败：${error.message}`);
+        }
+      });
+      actions.appendChild(button);
+    });
+    item.appendChild(actions);
   }
 
   chat.appendChild(item);
@@ -155,6 +185,11 @@ chatForm.addEventListener("submit", async (event) => {
       data.route,
       chatbotKnowledge,
       data.retrieval_trace || [],
+      {
+        session_id: sessionId,
+        question,
+        answer: data.answer,
+      },
     );
   } catch (error) {
     chat.lastElementChild.remove();
