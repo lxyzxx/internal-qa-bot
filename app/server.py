@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field
 
 from app.config import STATIC_DIR, settings
 from app.embedding import EmbeddingConfig
+from app.evaluation import evaluation_case_from_dict, run_evaluation
 from app.qdrant_index import NullVectorIndex, QdrantConfig, QdrantVectorIndex
 from app.rag import RAGService
 from app.storage import Storage
@@ -50,6 +51,10 @@ class ChatRequest(BaseModel):
     question: str
     session_id: str | None = None
     user_roles: list[str] = Field(default_factory=lambda: ["public"])
+
+
+class EvaluationRequest(BaseModel):
+    cases: list[dict[str, Any]] | None = None
 
 
 def seed_sample_data(
@@ -281,6 +286,20 @@ def create_app(
     async def rebuild_vector_index_endpoint(request: Request) -> dict[str, Any]:
         require_admin(request)
         return rebuild_vector_index(vector_index_instance, storage_instance)
+
+    @api.post("/api/evaluations/run")
+    async def run_evaluation_endpoint(
+        payload: EvaluationRequest,
+        request: Request,
+    ) -> dict[str, Any]:
+        require_admin(request)
+        cases = None
+        if payload.cases is not None:
+            try:
+                cases = [evaluation_case_from_dict(item) for item in payload.cases]
+            except (KeyError, TypeError, ValueError) as exc:
+                raise HTTPException(status_code=400, detail=f"invalid evaluation case: {exc}") from exc
+        return run_evaluation(rag_service_instance, cases)
 
     @api.post("/api/chat")
     async def chat(payload: ChatRequest) -> dict[str, Any]:

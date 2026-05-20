@@ -352,6 +352,65 @@ class ServerTest(unittest.TestCase):
             ["VPN 申请流程", "会议室预约制度"],
         )
 
+    def test_evaluation_endpoint_runs_custom_cases(self) -> None:
+        app = self.make_app()
+        create_status, _, _ = asyncio.run(
+            request(
+                app,
+                "POST",
+                "/api/documents",
+                {"title": "会议室预约制度", "content": "会议室预约需要提前 1 个工作日。"},
+            )
+        )
+        eval_status, _, eval_body = asyncio.run(
+            request(
+                app,
+                "POST",
+                "/api/evaluations/run",
+                {
+                    "cases": [
+                        {
+                            "id": "meeting_room",
+                            "question": "会议室预约制度要求提前多久？",
+                            "expected_sources": ["会议室预约制度"],
+                            "expected_answer_terms": ["会议室预约"],
+                        }
+                    ]
+                },
+            )
+        )
+
+        data = json.loads(eval_body)
+        self.assertEqual(create_status, 201)
+        self.assertEqual(eval_status, 200)
+        self.assertEqual(data["total"], 1)
+        self.assertEqual(data["passed"], 1)
+
+    def test_admin_token_protects_evaluation_when_configured(self) -> None:
+        temp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(temp_dir.cleanup)
+        storage = Storage(Path(temp_dir.name) / "app.db")
+        vector_index = NullVectorIndex()
+        app = create_app(storage, RAGService(storage, vector_index), vector_index, "secret-token")
+
+        missing_status, _, missing_body = asyncio.run(
+            request(app, "POST", "/api/evaluations/run", {"cases": []})
+        )
+        ok_status, _, ok_body = asyncio.run(
+            request(
+                app,
+                "POST",
+                "/api/evaluations/run",
+                {"cases": []},
+                {"x-admin-token": "secret-token"},
+            )
+        )
+
+        self.assertEqual(missing_status, 401)
+        self.assertEqual(json.loads(missing_body)["detail"], "invalid admin token")
+        self.assertEqual(ok_status, 200)
+        self.assertEqual(json.loads(ok_body)["total"], 0)
+
     def test_chat_endpoint(self) -> None:
         with patch("app.rag.generate_chat_answer", return_value="你好"):
             status, _, body = asyncio.run(
