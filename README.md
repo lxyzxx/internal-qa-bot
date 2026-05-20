@@ -17,10 +17,6 @@
 - 上下文核验：命中后读取同一文档相邻片段，避免只看孤立 chunk
 - Agentic RAG 问答：基于检索证据、原文上下文和会话历史构造回答
 - 来源追踪：回答下方展示检索轨迹、命中文档、证据线索、相关度和上下文
-- 权限过滤：文档可配置可见角色，问答检索只在用户可见的 chunk 内执行
-- 自动评估：支持 golden case 评估来源命中、答案要点和无答案识别
-- 用户反馈：回答下方可记录有用/有问题反馈，便于后续质检
-- 运行监控：记录问答路由、耗时、来源数、无答案数量和反馈统计
 - 会话记录：SQLite 保存多轮对话
 - 模型适配：通过 OpenAI Python SDK 调用 OpenAI-compatible Chat Completions 接口；未配置 `OPENAI_API_KEY` 时返回检索摘要
 
@@ -216,8 +212,7 @@ X-Admin-Token: 可选，配置 ADMIN_API_TOKEN 后必填
 
 {
   "title": "差旅报销制度",
-  "content": "员工完成出差后，需要在 10 个工作日内提交差旅报销申请...",
-  "visibility_roles": ["public", "finance"]
+  "content": "员工完成出差后，需要在 10 个工作日内提交差旅报销申请..."
 }
 ```
 
@@ -242,8 +237,7 @@ X-Admin-Token: 可选，配置 ADMIN_API_TOKEN 后必填
   "documents": [
     {
       "title": "VPN 申请流程",
-      "content": "VPN 申请需要填写权限申请单...",
-      "visibility_roles": ["it"]
+      "content": "VPN 申请需要填写权限申请单..."
     },
     {
       "title": "会议室预约制度",
@@ -311,8 +305,7 @@ Content-Type: application/json
 
 {
   "question": "差旅报销需要哪些材料？",
-  "session_id": "可选，会话 ID",
-  "user_roles": ["employee", "finance"]
+  "session_id": "可选，会话 ID"
 }
 ```
 
@@ -339,58 +332,6 @@ Content-Type: application/json
   ]
 }
 ```
-
-### 用户反馈
-
-```http
-POST /api/feedback
-Content-Type: application/json
-
-{
-  "session_id": "会话 ID",
-  "question": "差旅报销需要哪些材料？",
-  "answer": "模型回答",
-  "rating": "up",
-  "comment": "可选备注"
-}
-```
-
-管理员可以查看最近反馈：
-
-```http
-GET /api/feedback
-X-Admin-Token: 可选，配置 ADMIN_API_TOKEN 后必填
-```
-
-### 自动评估
-
-```http
-POST /api/evaluations/run
-Content-Type: application/json
-X-Admin-Token: 可选，配置 ADMIN_API_TOKEN 后必填
-
-{
-  "cases": [
-    {
-      "id": "reimbursement_materials",
-      "question": "差旅报销需要哪些材料？",
-      "expected_sources": ["差旅报销制度"],
-      "expected_answer_terms": ["发票", "审批"],
-      "should_have_answer": true,
-      "user_roles": ["finance"]
-    }
-  ]
-}
-```
-
-### 运行监控
-
-```http
-GET /api/metrics
-X-Admin-Token: 可选，配置 ADMIN_API_TOKEN 后必填
-```
-
-返回文档数、chunk 数、问答次数、平均耗时、无答案数量、路由分布和反馈统计。
 
 ## 项目结构
 
